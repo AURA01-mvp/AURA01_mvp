@@ -1,9 +1,15 @@
 [build]
   publish = "public"
   functions = "netlify/functions"
+  # Inject the real Supabase values into config.js at build time
+  command = "sed -i 's|{{SUPABASE_URL}}|'$SUPABASE_URL'|g; s|{{SUPABASE_ANON_KEY}}|'$SUPABASE_ANON_KEY'|g' public/js/config.js"
 
 [functions]
   node_bundler = "esbuild"
+
+[build.environment]
+  # Tell the secrets scanner these two keys are intentionally public
+  SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"
 
 [[redirects]]
   from = "/api/*"
@@ -19,4 +25,4 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
     Strict-Transport-Security = "max-age=31536000; includeSubDomains"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'"
