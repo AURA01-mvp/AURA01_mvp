@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#08070a">
+<meta name="color-scheme" content="dark only">
+<title>Sign in — Verya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;600&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .authbox{width:100%;max-width:420px;}
+  .authbox h1{font-size:26px;margin-bottom:6px;}
+  .authbox .sub{color:var(--muted);font-size:13px;margin-bottom:28px;}
+  .switcher{display:flex;gap:6px;margin-bottom:28px;border-bottom:1px solid var(--line);}
+  .switcher button{flex:1;padding:12px;background:none;border:none;color:var(--muted);font-size:13px;border-bottom:2px solid transparent;}
+  .switcher button.active{color:var(--amber);border-bottom-color:var(--amber);}
+</style>
+</head>
+<body>
+<div class="center-screen">
+  <div class="authbox">
+    <div class="logo" style="margin-bottom:34px;text-align:center;">VER<span class="amber">Y</span>A</div>
+    <div class="card">
+      <div class="switcher">
+        <button id="tabSignin" class="active">Sign in</button>
+        <button id="tabSignup">Create account</button>
+      </div>
+
+      <div id="alertBox"></div>
+
+      <!-- SIGN IN -->
+      <form id="formSignin">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="siEmail" required autocomplete="email">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="siPassword" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;" id="siSubmit">Sign in</button>
+      </form>
+
+      <!-- SIGN UP -->
+      <form id="formSignup" style="display:none;">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="suEmail" required autocomplete="email">
+        </div>
+        <div class="field">
+          <label>Password (min. 6 characters)</label>
+          <input type="password" id="suPassword" required minlength="6" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;" id="suSubmit">Create account</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+<script>
+const alertBox = document.getElementById('alertBox');
+const tabSignin = document.getElementById('tabSignin');
+const tabSignup = document.getElementById('tabSignup');
+const formSignin = document.getElementById('formSignin');
+const formSignup = document.getElementById('formSignup');
+
+tabSignin.onclick = () => { tabSignin.classList.add('active'); tabSignup.classList.remove('active'); formSignin.style.display='block'; formSignup.style.display='none'; Verya.clearAlert(alertBox); };
+tabSignup.onclick = () => { tabSignup.classList.add('active'); tabSignin.classList.remove('active'); formSignup.style.display='block'; formSignin.style.display='none'; Verya.clearAlert(alertBox); };
+
+// If already signed in, skip straight past this page.
+(async () => {
+  try {
+    const { data } = await Verya.sb.auth.getSession();
+    if (data.session) { await routeAfterLogin(); }
+  } catch (e) { /* ignore — just show the form */ }
+})();
+
+formSignin.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  Verya.clearAlert(alertBox);
+  const btn = document.getElementById('siSubmit');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const email = document.getElementById('siEmail').value.trim();
+    const password = document.getElementById('siPassword').value;
+    const { error } = await Verya.sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await routeAfterLogin();
+  } catch (err) {
+    Verya.showAlert(alertBox, err.message || 'Could not sign in. Check your email and password.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+});
+
+formSignup.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  Verya.clearAlert(alertBox);
+  const btn = document.getElementById('suSubmit');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+  try {
+    const email = document.getElementById('suEmail').value.trim();
+    const password = document.getElementById('suPassword').value;
+    const { data, error } = await Verya.sb.auth.signUp({ email, password });
+    if (error) throw error;
+    if (data.session) {
+      // Some Supabase projects have email confirmation OFF — session exists immediately.
+      await routeAfterLogin();
+    } else {
+      Verya.showAlert(alertBox, "Account created. Check your email to confirm it, then sign in.", "success");
+      tabSignin.click();
+      document.getElementById('siEmail').value = email;
+    }
+  } catch (err) {
+    Verya.showAlert(alertBox, err.message || 'Could not create account.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create account';
+  }
+});
+
+async function routeAfterLogin() {
+  try {
+    const { data: { user } } = await Verya.sb.auth.getUser();
+    const { data: profile } = await Verya.sb.from('profiles').select('onboarding_complete').eq('id', user.id).maybeSingle();
+    if (profile && profile.onboarding_complete) {
+      window.location.href = 'dashboard.html';
+    } else {
+      window.location.href = 'onboarding.html';
+    }
+  } catch (e) {
+    // If we genuinely can't tell, onboarding is the safe default — it re-routes too.
+    window.location.href = 'onboarding.html';
+  }
+}
+</script>
+</body>
+</html>

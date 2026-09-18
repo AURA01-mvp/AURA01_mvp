@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#08070a">
+<meta name="color-scheme" content="dark only">
+<title>Onboarding — Verya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;600&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .obwrap{width:100%;max-width:560px;}
+  .progress{height:2px;background:var(--line);border-radius:2px;margin-bottom:36px;overflow:hidden;}
+  .progress-bar{height:100%;background:var(--amber);transition:width 0.4s ease;width:6%;}
+  .question{font-size:22px;font-weight:300;line-height:1.4;margin-bottom:20px;}
+  .free-input{width:100%;min-height:80px;}
+  .step-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;}
+  .week-picker{display:flex;align-items:center;gap:16px;margin:22px 0;}
+  .week-picker input[type=range]{flex:1;accent-color:var(--amber);}
+  .week-picker .val{font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--amber);min-width:70px;text-align:right;}
+</style>
+</head>
+<body>
+<div class="center-screen">
+  <div class="obwrap">
+    <div class="logo" style="margin-bottom:26px;text-align:center;">VER<span class="amber">Y</span>A</div>
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="card" id="stage"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/app.js"></script>
+<script>
+let session, history = [], profileFragments = {}, doneProfile = null, currentQuestion = null;
+const stage = document.getElementById('stage');
+const progressBar = document.getElementById('progressBar');
+
+(async () => {
+  session = await Verya.requireSession();
+  if (!session) return;
+  await askNext();
+})();
+
+function setProgress(){
+  const pct = Math.min(90, 6 + history.length * 10);
+  progressBar.style.width = pct + '%';
+}
+
+function renderLoading(label){
+  stage.innerHTML = `<div class="loading-row"><span class="spinner"></span> ${escapeHtml(label)}</div>`;
+}
+
+function renderError(message, retryFn){
+  stage.innerHTML = `
+    <div class="alert alert-error">${escapeHtml(message)}</div>
+    <button class="btn btn-ghost" id="retryBtn">Try again</button>
+  `;
+  document.getElementById('retryBtn').onclick = retryFn;
+}
+
+async function askNext(){
+  setProgress();
+  renderLoading('Verya is thinking of the next question…');
+  try {
+    const result = await Verya.ai('onboarding_next', { history, profile: profileFragments });
+    if (result.type === 'done') {
+      doneProfile = result.profile || {};
+      renderTimeframeStep();
+    } else {
+      currentQuestion = result;
+      renderQuestion(result);
+    }
+  } catch (err) {
+    renderError(err.message || 'Something went wrong reaching Verya.', askNext);
+  }
+}
+
+function renderQuestion(q){
+  const chips = (q.quick_replies || []).filter(Boolean);
+  stage.innerHTML = `
+    <div class="question">${escapeHtml(q.question)}</div>
+    <textarea class="free-input" id="answerInput" placeholder="Type your answer…"></textarea>
+    ${chips.length ? `<div class="qr-row">${chips.map(c => `<button type="button" class="qr-chip" data-val="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}</div>` : ''}
+    <div class="step-actions">
+      <button class="btn btn-primary" id="nextBtn">Continue</button>
+    </div>
+  `;
+  const input = document.getElementById('answerInput');
+  input.focus();
+  document.querySelectorAll('.qr-chip').forEach(chip => {
+    chip.onclick = () => { input.value = chip.dataset.val; submitAnswer(); };
+  });
+  document.getElementById('nextBtn').onclick = submitAnswer;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitAnswer();
+  });
+}
+
+async function submitAnswer(){
+  const input = document.getElementById('answerInput');
+  const answer = input.value.trim();
+  if (!answer) { input.focus(); return; }
+  history.push({ q: currentQuestion.question, a: answer });
+  await askNext();
+}
+
+function renderTimeframeStep(){
+  const suggested = doneProfile.timeframe_hint_weeks || 12;
+  stage.innerHTML = `
+    <div class="eyebrow">Almost there</div>
+    <div class="question" style="margin-top:14px;">${escapeHtml(doneProfile.summary || "Here's what Verya understood.")}</div>
+    <div class="field" style="margin-top:22px;">
+      <label>Your name (optional, you can leave this and edit later)</label>
+      <input type="text" id="nameInput" value="${escapeHtml(doneProfile.name || '')}">
+    </div>
+    <label>How many weeks do you want to give this goal?</label>
+    <div class="week-picker">
+      <input type="range" min="1" max="104" value="${suggested}" id="weekSlider">
+      <div class="val" id="weekVal">${suggested}w</div>
+    </div>
+    <div class="muted" style="font-size:13px;">Verya's estimate: ~${suggested} weeks. Adjust to whatever timeframe you actually want.</div>
+    <div id="planAlert"></div>
+    <div class="step-actions">
+      <button class="btn btn-primary" id="buildBtn">Build my plan</button>
+    </div>
+  `;
+  const slider = document.getElementById('weekSlider');
+  const val = document.getElementById('weekVal');
+  slider.oninput = () => val.textContent = slider.value + 'w';
+  document.getElementById('buildBtn').onclick = buildPlan;
+}
+
+async function buildPlan(){
+  const btn = document.getElementById('buildBtn');
+  const planAlert = document.getElementById('planAlert');
+  Verya.clearAlert(planAlert);
+  btn.disabled = true;
+  const weeks = parseInt(document.getElementById('weekSlider').value, 10);
+  const name = document.getElementById('nameInput').value.trim();
+  renderLoading('Building your plan…');
+  try {
+    const finalProfile = { ...doneProfile, name: name || doneProfile.name || '' };
+    const planResult = await Verya.ai('generate_plan', { profile: finalProfile, timeframe_weeks: weeks });
+
+    const { data: { user } } = await Verya.sb.auth.getUser();
+
+    const { error: profileErr } = await Verya.sb.from('profiles').update({
+      full_name: finalProfile.name || null,
+      background: { background: finalProfile.background || '', domain: finalProfile.domain || '' },
+      weekly_hours: finalProfile.weekly_hours || null,
+      onboarding_complete: true,
+    }).eq('id', user.id);
+    if (profileErr) throw profileErr;
+
+    const { error: goalErr } = await Verya.sb.from('goals').insert({
+      user_id: user.id,
+      title: finalProfile.goal || 'My goal',
+      domain: finalProfile.domain || null,
+      timeframe_weeks: weeks,
+      milestones: (planResult.milestones || []).map(m => ({ ...m, done: false })),
+      status: 'active',
+      is_focus: true,
+    });
+    if (goalErr) throw goalErr;
+
+    window.location.href = 'dashboard.html';
+  } catch (err) {
+    renderTimeframeStep();
+    const planAlert2 = document.getElementById('planAlert');
+    Verya.showAlert(planAlert2, err.message || 'Could not build your plan. Please try again.');
+  }
+}
+</script>
+</body>
+</html>
