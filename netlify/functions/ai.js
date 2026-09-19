@@ -5,10 +5,21 @@
 // token below — without that, anyone who finds this URL could burn through
 // your whole daily free quota without ever signing up.
 
-const { GoogleGenAI } = require("@google/genai");
 const { createClient } = require("@supabase/supabase-js");
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// @google/genai ships ESM-only (no CommonJS build), so it can't be loaded
+// with require() from this CommonJS function file. Dynamic import() handles
+// both ESM and CJS packages correctly, so we lazy-load and cache the client
+// instead of importing it at the top of the file.
+let genAIClientPromise;
+function getGenAI() {
+  if (!genAIClientPromise) {
+    genAIClientPromise = import("@google/genai").then(
+      (mod) => new mod.GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+    );
+  }
+  return genAIClientPromise;
+}
 // flash-lite has the highest free-tier request ceiling, which matters here
 // because Panel mode alone fires 3 calls per chat message. Swap to
 // "gemini-2.5-flash" via the GEMINI_MODEL env var for higher quality if
@@ -90,7 +101,8 @@ function toContents(history = [], newMessage) {
 }
 
 async function generate({ systemInstruction, contents, maxOutputTokens = 1000 }) {
-  const resp = await genAI.models.generateContent({
+  const client = await getGenAI();
+  const resp = await client.models.generateContent({
     model: MODEL,
     contents,
     config: { systemInstruction, maxOutputTokens },
