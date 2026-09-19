@@ -32,6 +32,7 @@ const Verya = {
       throw new Error("Session expired. Please sign in again.");
     }
     if (!res.ok) {
+      if (data.detail) console.error("AI function detail:", data.detail);
       throw new Error(data.error || `AI request failed (${res.status})`);
     }
     return data;
